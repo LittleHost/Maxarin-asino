@@ -29,21 +29,21 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(asctime)s -
 logger = logging.getLogger(__name__)
 
 # --- Фейковая казна (обновляется в фоне каждые 5 минут) ---
+# --- Фейковая казна (обновляется при вызове, если прошло 5 минут) ---
 class FakeTreasury:
     def __init__(self):
         self.usdt = random.randint(590, 780)
         self.last_update = datetime.now()
-        self._running = True
-        Thread(target=self._auto_update, daemon=True).start()
-    
-    def _auto_update(self):
-        while self._running:
-            time.sleep(300)  # 5 минут
-            self.usdt = random.randint(590, 780)
-            self.last_update = datetime.now()
     
     def get(self):
-        return self.usdt, self.last_update
+        # Проверяем, прошло ли 5 минут с последнего обновления
+        now = datetime.now()
+        if (now - self.last_update).total_seconds() >= 300:  # 5 минут = 300 секунд
+            self.usdt = random.randint(590, 780)
+            self.last_update = now
+        return self.usdt
+
+fake_treasury = FakeTreasury()
 
 # --- Состояния FSM ---
 class DepositState(StatesGroup):
@@ -389,16 +389,13 @@ async def help_command(message: Message):
 
 @dp.message(Command("reserve"))
 async def reserve_command_handler(message: Message):
-    wait_msg = await message.answer("🔄 Загрузка данных о резервах...")
-    
-    # Просто получаем текущее значение без принудительного обновления
-    current_usdt = fake_treasury.usdt
+    current_usdt = fake_treasury.get()
     
     text = f"<b>🥣 Crypto Bot: ${current_usdt:,.2f} USDT</b>\n"
     text += f"🟢 USDT: {current_usdt:.4f} (${current_usdt:,.2f} USDT)\n"
     text += "\n<code>Баланс обновлен: только что</code>"
     
-    await wait_msg.edit_text(text, parse_mode=ParseMode.HTML)
+    await message.answer(text, parse_mode=ParseMode.HTML)
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
     user_id = message.from_user.id
