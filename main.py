@@ -38,16 +38,12 @@ class FakeTreasury:
     
     def _auto_update(self):
         while self._running:
-            time.sleep(300)
+            time.sleep(300)  # 5 минут
             self.usdt = random.randint(590, 780)
             self.last_update = datetime.now()
     
-    def force_update(self):
-        self.usdt = random.randint(590, 780)
-        self.last_update = datetime.now()
-        return self.usdt
-
-fake_treasury = FakeTreasury()
+    def get(self):
+        return self.usdt, self.last_update
 
 # --- Состояния FSM ---
 class DepositState(StatesGroup):
@@ -394,14 +390,15 @@ async def help_command(message: Message):
 @dp.message(Command("reserve"))
 async def reserve_command_handler(message: Message):
     wait_msg = await message.answer("🔄 Загрузка данных о резервах...")
-    fake_total_usd = fake_treasury.force_update()
     
-    text = f"<b>🥣 Crypto Bot: ${fake_total_usd:,.2f} USDT</b>\n"
-    text += f"🟢 USDT: {fake_total_usd:.4f} (${fake_total_usd:,.2f} USDT)\n"
+    # Просто получаем текущее значение без принудительного обновления
+    current_usdt = fake_treasury.usdt
+    
+    text = f"<b>🥣 Crypto Bot: ${current_usdt:,.2f} USDT</b>\n"
+    text += f"🟢 USDT: {current_usdt:.4f} (${current_usdt:,.2f} USDT)\n"
     text += "\n<code>Баланс обновлен: только что</code>"
     
     await wait_msg.edit_text(text, parse_mode=ParseMode.HTML)
-
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
     user_id = message.from_user.id
