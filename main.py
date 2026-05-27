@@ -356,6 +356,7 @@ class Database:
         self.conn.commit()
 
 db = Database()
+user_navigation = {}
 dp = Dispatcher()
 
 # --- Глобальные настройки ---
