@@ -430,53 +430,30 @@ async def command_start_handler(message: Message) -> None:
         parse_mode=ParseMode.HTML
     )
 
-# --- УСТАНОВКА СТАВКИ ЧЕРЕЗ ТЕКСТ ---
-# --- УСТАНОВКА СТАВКИ ЧЕРЕЗ ТЕКСТ (ИСПРАВЛЕНО) ---
-@dp.message(F.text.regexp(r"^(\d+[\.,]?\d*)[\$]?$"))
+# --- УСТАНОВКА СТАВКИ ЧЕРЕЗ ТЕКСТ (ТОЛЬКО С СИМВОЛОМ $) ---
+@dp.message(F.text.regexp(r"^(\d+[\.,]?\d*)\s*\$"))
 async def set_bet_by_text_handler(message: Message, state: FSMContext):
+    """Установка ставки только через число с $ (например: 5$, 0.5$, 10.00$)"""
     user_id = message.from_user.id
     
-    # Проверяем, находимся ли мы в режиме ввода суммы вывода
+    # Очищаем состояние если оно есть
     current_state = await state.get_state()
+    if current_state:
+        await state.clear()
     
-    # Если пользователь в режиме вывода или пополнения - пропускаем
-    if current_state in [WithdrawState.entering_amount, WithdrawState.choosing_method, DepositState.entering_amount]:
-        return  # Игнорируем, даем обработать другим хендлерам
-    
-    # Проверяем, есть ли символ $ в конце - значит принудительная ставка
-    has_dollar = message.text.endswith('$') or message.text.endswith('$ ')
-    
-    text = message.text.replace("$", "").replace("💰", "").replace("💵", "").replace("USDT", "").replace("usdt", "").replace(",", ".").strip()
-    
+    # Извлекаем число
+    text = message.text.replace("$", "").replace(",", ".").strip()
     try:
         amount = float(text)
-        
-        if has_dollar:
-            # Принудительная ставка через $
-            if amount < 0.01:
-                return await message.answer("❌ Минимальная ставка — <b>0.01 USDT</b>")
-            if amount > config.MAX_BET:
-                return await message.answer(f"❌ Максимальная ставка — <b>{config.MAX_BET:.2f} USDT</b>")
-            db.set_bet(user_id, amount)
-            await message.answer(f"✅ Ваша ставка установлена на <b>{amount:.2f} USDT</b>")
-        else:
-            # Без $ - проверяем, не в режиме ли игры
-            if current_state and current_state != PlayingState.dice:
-                # Если в каком-то состоянии, но не в игре - игнорируем
-                pass
-            else:
-                # Очищаем состояние и устанавливаем ставку
-                if current_state:
-                    await state.clear()
-                if amount < 0.01:
-                    return await message.answer("❌ Минимальная ставка — <b>0.01 USDT</b>")
-                if amount > config.MAX_BET:
-                    return await message.answer(f"❌ Максимальная ставка — <b>{config.MAX_BET:.2f} USDT</b>")
-                db.set_bet(user_id, amount)
-                await message.answer(f"✅ Ваша ставка установлена на <b>{amount:.2f} USDT</b>")
+        if amount < 0.1:
+            return await message.answer("❌ Минимальная ставка — <b>0.01 USDT</b>")
+        if amount > config.MAX_BET:
+            return await message.answer(f"❌ Максимальная ставка — <b>{config.MAX_BET:.2f} USDT</b>")
+        db.set_bet(user_id, amount)
+        await message.answer(f"✅ Ваша ставка установлена на <b>{amount:.2f} USDT</b>")
     except ValueError:
-        pass
-
+        await message.answer("❌ Введите корректную сумму, например: <code>5$</code>")
+        
 # ==================== БЫСТРЫЕ СТАВКИ (куб чет, нечет и т.д.) ====================
 @dp.message(F.text.lower().regexp(r"^(куб|кубы)\s+(чет|нечет|меньше|больше|\d+(\,\d+)?)$"))
 async def quick_dice_handler(message: Message, state: FSMContext):
