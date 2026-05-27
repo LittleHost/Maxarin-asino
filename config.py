@@ -142,7 +142,10 @@ TEXTS = {
             "modes": "🎮 Режимы",
             "game_mines": "💣 Мины",
             "game_tower": "🗼 Башня",
-            "own_casino": "🎰 Хочу свое казино"
+            "own_casino": "🎰 Хочу свое казино
+            "checks": "🎫 Чеки",
+            "create_check": "✨ Создать чек", 
+            "my_checks": "📋 Мои чеки",
         }
     },
     "en": {
