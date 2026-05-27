@@ -49,6 +49,10 @@ class WithdrawState(StatesGroup):
     entering_amount = State()
     choosing_method = State()
 
+class CheckState(StatesGroup):
+    entering_amount = State()
+    entering_uses = State()
+
 class PrivacyState(StatesGroup):
     entering_nickname = State()
 
@@ -135,6 +139,49 @@ class Database:
         self.conn = sqlite3.connect(db_name)
         self.cursor = self.conn.cursor()
         self.create_table()
+        def create_check(self, creator_id, amount, max_uses):
+    import string
+    import random
+    check_id = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    self.cursor.execute(
+        "INSERT INTO checks (check_id, creator_id, amount, uses_left, max_uses, created_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (check_id, creator_id, amount, max_uses, max_uses, created_at, 1)
+    )
+    self.conn.commit()
+    return check_id
+
+def get_check(self, check_id):
+    self.cursor.execute("SELECT * FROM checks WHERE check_id = ? AND is_active = 1 AND uses_left > 0", (check_id,))
+    return self.cursor.fetchone()
+
+def activate_check(self, check_id, user_id):
+    self.cursor.execute("SELECT 1 FROM check_activations WHERE check_id = ? AND user_id = ?", (check_id, user_id))
+    if self.cursor.fetchone():
+        return False, "already_used"
+    self.cursor.execute("SELECT amount, uses_left FROM checks WHERE check_id = ? AND is_active = 1 AND uses_left > 0", (check_id,))
+    row = self.cursor.fetchone()
+    if not row:
+        return False, "not_found"
+    amount, uses_left = row
+    self.cursor.execute("UPDATE checks SET uses_left = uses_left - 1 WHERE check_id = ?", (check_id,))
+    activated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    self.cursor.execute(
+        "INSERT INTO check_activations (check_id, user_id, activated_at) VALUES (?, ?, ?)",
+        (check_id, user_id, activated_at)
+    )
+    self.conn.commit()
+    self.add_balance(user_id, amount)
+    return True, amount
+
+def get_my_checks(self, creator_id):
+    self.cursor.execute("SELECT check_id, amount, uses_left, max_uses, created_at FROM checks WHERE creator_id = ? AND is_active = 1", (creator_id,))
+    return self.cursor.fetchall()
+
+def deactivate_check(self, check_id, creator_id):
+    self.cursor.execute("UPDATE checks SET is_active = 0 WHERE check_id = ? AND creator_id = ?", (check_id, creator_id))
+    self.conn.commit()
+    return self.cursor.rowcount > 0
 
     def create_table(self):
         self.cursor.execute("""
@@ -169,6 +216,28 @@ class Database:
                 date TEXT
             )
         """)
+        # Добавьте эти таблицы
+self.cursor.execute("""
+    CREATE TABLE IF NOT EXISTS checks (
+        check_id TEXT PRIMARY KEY,
+        creator_id INTEGER,
+        amount REAL,
+        uses_left INTEGER,
+        max_uses INTEGER,
+        created_at TEXT,
+        is_active INTEGER DEFAULT 1
+    )
+""")
+
+self.cursor.execute("""
+    CREATE TABLE IF NOT EXISTS check_activations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        check_id TEXT,
+        user_id INTEGER,
+        activated_at TEXT,
+        FOREIGN KEY (check_id) REFERENCES checks (check_id)
+    )
+""")
         self.cursor.execute("PRAGMA table_info(users)")
         columns = [column[1] for column in self.cursor.fetchall()]
         for col, dtype in [("balance", "REAL DEFAULT 0.0"), ("privacy_type", "TEXT DEFAULT 'username'"), 
@@ -339,6 +408,13 @@ def get_main_keyboard(user_id: int):
     builder.row(
         InlineKeyboardButton(text=get_btn(user_id, "language"), callback_data="language"),
         InlineKeyboardButton(text=get_btn(user_id, "own_casino"), url=config.OWN_CASINO_LINK)
+    builder.row(
+    InlineKeyboardButton(text=get_btn(user_id, "language"), callback_data="language"),
+    InlineKeyboardButton(text=get_btn(user_id, "checks"), callback_data="checks_menu")
+)
+    builder.row(
+    InlineKeyboardButton(text=get_btn(user_id, "own_casino"), url=config.OWN_CASINO_LINK)
+)    
     )
     return builder.as_markup()
 
@@ -399,53 +475,64 @@ async def reserve_command_handler(message: Message):
     current_usdt = fake_treasury.get()
     text = f"<b>🥣 Crypto Bot: ${current_usdt:,.2f} USDT</b>\n🟢 USDT: {current_usdt:.4f} (${current_usdt:,.2f} USDT)\n\n<code>Баланс обновлен: только что</code>"
     await message.answer(text, parse_mode=ParseMode.HTML)
-
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     
     referrer_id = None
+    check_id = None
     args = message.text.split()
-    if len(args) > 1 and args[1].startswith("invite_"):
-        try:
-            potential_ref_id = args[1].replace("invite_", "")
-            if potential_ref_id.isdigit():
-                referrer_id = int(potential_ref_id)
-                if referrer_id == user_id:
-                    referrer_id = None
-        except:
-            pass
-
+    
+    if len(args) > 1:
+        arg = args[1]
+        if arg.startswith("invite_"):
+            try:
+                potential_ref_id = arg.replace("invite_", "")
+                if potential_ref_id.isdigit():
+                    referrer_id = int(potential_ref_id)
+                    if referrer_id == user_id:
+                        referrer_id = None
+            except:
+                pass
+        elif arg.startswith("check_"):
+            check_id = arg.replace("check_", "")
+    
     is_new = db.register_user(user_id, username, referrer_id)
     if is_new and referrer_id:
         try:
             await message.bot.send_message(referrer_id, f"👤 У вас новый реферал: <b>{username}</b>!")
         except:
             pass
-        
+    
+    if check_id:
+        success, result = db.activate_check(check_id, user_id)
+        if success:
+            await message.answer(f"✅ Вы активировали чек на <b>{result} USDT</b>!", parse_mode=ParseMode.HTML)
+        elif result == "already_used":
+            await message.answer("❌ Вы уже активировали этот чек!", parse_mode=ParseMode.HTML)
+        else:
+            await message.answer("❌ Чек не найден или уже использован!", parse_mode=ParseMode.HTML)
+    
     await message.answer(
         get_text(user_id, "welcome"), 
         reply_markup=get_main_keyboard(user_id), 
         parse_mode=ParseMode.HTML
     )
 
+
 # --- УСТАНОВКА СТАВКИ ЧЕРЕЗ ТЕКСТ (ТОЛЬКО С СИМВОЛОМ $) ---
+# --- УСТАНОВКА СТАВКИ ТОЛЬКО ЧЕРЕЗ $ ---
 @dp.message(F.text.regexp(r"^(\d+[\.,]?\d*)\s*\$"))
 async def set_bet_by_text_handler(message: Message, state: FSMContext):
-    """Установка ставки только через число с $ (например: 5$, 0.5$, 10.00$)"""
     user_id = message.from_user.id
-    
-    # Очищаем состояние если оно есть
     current_state = await state.get_state()
     if current_state:
         await state.clear()
-    
-    # Извлекаем число
     text = message.text.replace("$", "").replace(",", ".").strip()
     try:
         amount = float(text)
-        if amount < 0.1:
+        if amount < 0.01:
             return await message.answer("❌ Минимальная ставка — <b>0.01 USDT</b>")
         if amount > config.MAX_BET:
             return await message.answer(f"❌ Максимальная ставка — <b>{config.MAX_BET:.2f} USDT</b>")
@@ -453,7 +540,6 @@ async def set_bet_by_text_handler(message: Message, state: FSMContext):
         await message.answer(f"✅ Ваша ставка установлена на <b>{amount:.2f} USDT</b>")
     except ValueError:
         await message.answer("❌ Введите корректную сумму, например: <code>5$</code>")
-        
 # ==================== БЫСТРЫЕ СТАВКИ (куб чет, нечет и т.д.) ====================
 @dp.message(F.text.lower().regexp(r"^(куб|кубы)\s+(чет|нечет|меньше|больше|\d+(\,\d+)?)$"))
 async def quick_dice_handler(message: Message, state: FSMContext):
@@ -759,6 +845,8 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
     
     if previous_menu == "main":
         await command_start_handler(callback.message)
+    elif previous_menu == "checks_menu":
+        await checks_menu_callback(callback, state)
     elif previous_menu == "profile":
         await profile_callback(callback, state)
     elif previous_menu == "play":
@@ -2472,6 +2560,128 @@ async def coming_soon_callback(callback: CallbackQuery, state: FSMContext):
     await callback.answer("🚧 Этот раздел находится в разработке!", show_alert=True)
 
 # ==================== ЗАПУСК БОТА ====================
+# ==================== ЧЕКИ (ПРОМОКОДЫ) ====================
+
+@dp.callback_query(F.data == "checks_menu")
+async def checks_menu_callback(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    user_navigation[user_id] = user_navigation.get(user_id, []) + ["checks_menu"]
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text=get_btn(user_id, "create_check"), callback_data="create_check"),
+        InlineKeyboardButton(text=get_btn(user_id, "my_checks"), callback_data="my_checks")
+    )
+    builder.row(get_back_button("main"))
+    text = "🎫 <b>Управление чеками</b>\n\nЧеки — это ссылки, по которым пользователи могут получить USDT на баланс.\n\n• <b>Создать чек</b> — укажите сумму и количество активаций\n• <b>Мои чеки</b> — список ваших активных чеков"
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
+
+@dp.callback_query(F.data == "create_check")
+async def create_check_amount_callback(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    await state.set_state(CheckState.entering_amount)
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_check"))
+    await callback.message.edit_text("💰 Введите сумму чека в USDT:", reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
+
+@dp.callback_query(F.data == "cancel_check")
+async def cancel_check_callback(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await checks_menu_callback(callback, state)
+
+@dp.message(CheckState.entering_amount)
+async def process_check_amount(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    try:
+        amount = float(message.text.replace(",", "."))
+    except ValueError:
+        return await message.answer("❌ Введите корректную сумму (число)")
+    if amount < 0.1:
+        return await message.answer("❌ Минимальная сумма чека — <b>0.1 USDT</b>")
+    if amount > 10000:
+        return await message.answer("❌ Максимальная сумма чека — <b>10000 USDT</b>")
+    user_data = db.get_user_data(user_id)
+    balance = user_data[3] if user_data else 0
+    if balance < amount:
+        return await message.answer(f"❌ Недостаточно средств! Ваш баланс: {balance:.2f} USDT")
+    await state.update_data(check_amount=amount)
+    await state.set_state(CheckState.entering_uses)
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_check"))
+    await message.answer("🔢 Введите количество активаций (1-10000):", reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
+
+@dp.message(CheckState.entering_uses)
+async def process_check_uses(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    try:
+        uses = int(message.text)
+    except ValueError:
+        return await message.answer("❌ Введите целое число (количество активаций)")
+    if uses < 1:
+        return await message.answer("❌ Минимальное количество активаций — <b>1</b>")
+    if uses > 10000:
+        return await message.answer("❌ Максимальное количество активаций — <b>10000</b>")
+    data = await state.get_data()
+    amount = data.get("check_amount")
+    if not db.add_balance(user_id, -amount):
+        await state.clear()
+        return await message.answer("❌ Ошибка при списании средств!")
+    check_id = db.create_check(user_id, amount, uses)
+    bot_info = await message.bot.get_me()
+    check_link = f"https://t.me/{bot_info.username}?start=check_{check_id}"
+    await state.clear()
+    text = f"✅ Чек успешно создан!\n\n🔗 Ссылка: <code>{check_link}</code>\n💰 Сумма: {amount} USDT\n📊 Активаций: {uses}\n\nОтправьте эту ссылку пользователям!"
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🔗 Скопировать ссылку", url=check_link))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="checks_menu"))
+    await message.answer(text, reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
+
+@dp.callback_query(F.data == "my_checks")
+async def my_checks_callback(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    checks = db.get_my_checks(user_id)
+    if not checks:
+        text = "📭 У вас нет активных чеков."
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text="✨ Создать чек", callback_data="create_check"))
+        builder.row(get_back_button("checks_menu"))
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
+        return
+    builder = InlineKeyboardBuilder()
+    for check in checks:
+        check_id, amount, uses_left, max_uses, created_at = check
+        builder.row(InlineKeyboardButton(text=f"🎫 {check_id[:8]}... | {amount} USDT | {uses_left}/{max_uses}", callback_data=f"check_detail:{check_id}"))
+    builder.row(get_back_button("checks_menu"))
+    await callback.message.edit_text("📋 <b>Ваши активные чеки</b>\n\nНажмите на чек для управления.", reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
+
+@dp.callback_query(F.data.startswith("check_detail:"))
+async def check_detail_callback(callback: CallbackQuery, state: FSMContext):
+    check_id = callback.data.split(":")[1]
+    user_id = callback.from_user.id
+    db.cursor.execute("SELECT amount, uses_left, max_uses, created_at FROM checks WHERE check_id = ? AND creator_id = ?", (check_id, user_id))
+    row = db.cursor.fetchone()
+    if not row:
+        await callback.answer("❌ Чек не найден!", show_alert=True)
+        return
+    amount, uses_left, max_uses, created_at = row
+    bot_info = await callback.bot.get_me()
+    check_link = f"https://t.me/{bot_info.username}?start=check_{check_id}"
+    text = f"🎫 Чек: <code>{check_id}</code>\n💰 Сумма: {amount} USDT\n📊 Осталось активаций: {uses_left}/{max_uses}\n📅 Создан: {created_at}"
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🔗 Ссылка на чек", url=check_link))
+    builder.row(InlineKeyboardButton(text="🗑 Деактивировать", callback_data=f"deactivate_check:{check_id}"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="my_checks"))
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
+
+@dp.callback_query(F.data.startswith("deactivate_check:"))
+async def deactivate_check_callback(callback: CallbackQuery, state: FSMContext):
+    check_id = callback.data.split(":")[1]
+    user_id = callback.from_user.id
+    if db.deactivate_check(check_id, user_id):
+        await callback.answer("✅ Чек деактивирован!", show_alert=True)
+    else:
+        await callback.answer("❌ Не удалось деактивировать чек", show_alert=True)
+    await my_checks_callback(callback, state)
+
 async def main() -> None:
     if not config.BOT_TOKEN:
         print("ОШИБКА: Токен бота не найден.")
