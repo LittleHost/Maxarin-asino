@@ -328,6 +328,199 @@ self.cursor.execute("""
         if is_bet:
             self.cursor.execute("UPDATE users SET total_bets = total_bets + 1, total_turnover = total_turnover + ? WHERE user_id = ?", (abs(amount), user_id))
             self.cursor.execute("SELECT total_turnover FROM users WHERE user_id = ?", (user_id,))
+class Database:
+    def __init__(self, db_name="users.db"):
+        self.conn = sqlite3.connect(db_name)
+        self.cursor = self.conn.cursor()
+        self.create_table()
+
+    def create_table(self):
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                reg_date TEXT,
+                player_num INTEGER,
+                lang TEXT DEFAULT 'ru',
+                balance REAL DEFAULT 0.0,
+                privacy_type TEXT DEFAULT 'username',
+                nickname TEXT,
+                total_bets INTEGER DEFAULT 0,
+                total_turnover REAL DEFAULT 0.0,
+                total_deposits REAL DEFAULT 0.0,
+                total_withdrawals REAL DEFAULT 0.0,
+                current_bet REAL DEFAULT 0.2,
+                referrer_id INTEGER,
+                ref_balance REAL DEFAULT 0.0,
+                total_ref_earned REAL DEFAULT 0.0,
+                rank_id INTEGER DEFAULT 0,
+                mines_count INTEGER DEFAULT 3,
+                tower_bombs INTEGER DEFAULT 1
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS processed_invoices (
+                invoice_id TEXT PRIMARY KEY,
+                user_id INTEGER,
+                amount REAL,
+                method TEXT,
+                date TEXT
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS checks (
+                check_id TEXT PRIMARY KEY,
+                creator_id INTEGER,
+                amount REAL,
+                uses_left INTEGER,
+                max_uses INTEGER,
+                created_at TEXT,
+                is_active INTEGER DEFAULT 1
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS check_activations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                check_id TEXT,
+                user_id INTEGER,
+                activated_at TEXT,
+                FOREIGN KEY (check_id) REFERENCES checks (check_id)
+            )
+        """)
+        self.cursor.execute("PRAGMA table_info(users)")
+        columns = [column[1] for column in self.cursor.fetchall()]
+        for col, dtype in [("balance", "REAL DEFAULT 0.0"), ("privacy_type", "TEXT DEFAULT 'username'"), 
+                           ("nickname", "TEXT"), ("total_bets", "INTEGER DEFAULT 0"), 
+                           ("total_turnover", "REAL DEFAULT 0.0"), ("total_deposits", "REAL DEFAULT 0.0"),
+                           ("total_withdrawals", "REAL DEFAULT 0.0"), ("current_bet", "REAL DEFAULT 0.2"),
+                           ("referrer_id", "INTEGER"), ("ref_balance", "REAL DEFAULT 0.0"),
+                           ("total_ref_earned", "REAL DEFAULT 0.0"), ("rank_id", "INTEGER DEFAULT 0"),
+                           ("mines_count", "INTEGER DEFAULT 3"), ("tower_bombs", "INTEGER DEFAULT 1")]:
+            if col not in columns:
+                self.cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {dtype}")
+        self.conn.commit()
+
+    def create_check(self, creator_id, amount, max_uses):
+        import string
+        import random
+        check_id = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+        created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.cursor.execute(
+            "INSERT INTO checks (check_id, creator_id, amount, uses_left, max_uses, created_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (check_id, creator_id, amount, max_uses, max_uses, created_at, 1)
+        )
+        self.conn.commit()
+        return check_id
+
+    def get_check(self, check_id):
+        self.cursor.execute("SELECT * FROM checks WHERE check_id = ? AND is_active = 1 AND uses_left > 0", (check_id,))
+        return self.cursor.fetchone()
+
+    def activate_check(self, check_id, user_id):
+        self.cursor.execute("SELECT 1 FROM check_activations WHERE check_id = ? AND user_id = ?", (check_id, user_id))
+        if self.cursor.fetchone():
+            return False, "already_used"
+        self.cursor.execute("SELECT amount, uses_left FROM checks WHERE check_id = ? AND is_active = 1 AND uses_left > 0", (check_id,))
+        row = self.cursor.fetchone()
+        if not row:
+            return False, "not_found"
+        amount, uses_left = row
+        self.cursor.execute("UPDATE checks SET uses_left = uses_left - 1 WHERE check_id = ?", (check_id,))
+        activated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.cursor.execute(
+            "INSERT INTO check_activations (check_id, user_id, activated_at) VALUES (?, ?, ?)",
+            (check_id, user_id, activated_at)
+        )
+        self.conn.commit()
+        self.add_balance(user_id, amount)
+        return True, amount
+
+    def get_my_checks(self, creator_id):
+        self.cursor.execute("SELECT check_id, amount, uses_left, max_uses, created_at FROM checks WHERE creator_id = ? AND is_active = 1", (creator_id,))
+        return self.cursor.fetchall()
+
+    def deactivate_check(self, check_id, creator_id):
+        self.cursor.execute("UPDATE checks SET is_active = 0 WHERE check_id = ? AND creator_id = ?", (check_id, creator_id))
+        self.conn.commit()
+        return self.cursor.rowcount > 0
+
+    def is_invoice_processed(self, invoice_id):
+        self.cursor.execute("SELECT 1 FROM processed_invoices WHERE invoice_id = ?", (invoice_id,))
+        return self.cursor.fetchone() is not None
+
+    def mark_invoice_processed(self, invoice_id, user_id, amount, method):
+        date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.cursor.execute(
+            "INSERT INTO processed_invoices (invoice_id, user_id, amount, method, date) VALUES (?, ?, ?, ?, ?)",
+            (invoice_id, user_id, amount, method, date)
+        )
+        self.conn.commit()
+
+    def register_user(self, user_id, username, referrer_id=None):
+        self.cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+        if not self.cursor.fetchone():
+            self.cursor.execute("SELECT COUNT(*) FROM users")
+            count = self.cursor.fetchone()[0]
+            player_num = count + 1
+            reg_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.cursor.execute(
+                "INSERT INTO users (user_id, username, reg_date, player_num, balance, total_bets, total_turnover, total_deposits, total_withdrawals, current_bet, referrer_id, ref_balance, total_ref_earned, rank_id, mines_count, tower_bombs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, username, reg_date, player_num, 0.0, 0, 0.0, 0.0, 0.0, 0.2, referrer_id, 0.0, 0.0, 0, 3, 1)
+            )
+            self.conn.commit()
+            return True
+        return False
+
+    def get_user_data(self, user_id):
+        self.cursor.execute("SELECT reg_date, player_num, lang, balance, privacy_type, nickname, username, total_bets, total_turnover, total_deposits, total_withdrawals, current_bet, referrer_id, ref_balance, total_ref_earned, rank_id, mines_count, tower_bombs FROM users WHERE user_id = ?", (user_id,))
+        return self.cursor.fetchone()
+
+    def add_ref_balance(self, user_id, amount):
+        self.cursor.execute("UPDATE users SET ref_balance = ref_balance + ?, total_ref_earned = total_ref_earned + ? WHERE user_id = ?", (amount, amount, user_id))
+        self.conn.commit()
+
+    def claim_ref_balance(self, user_id):
+        self.cursor.execute("SELECT ref_balance FROM users WHERE user_id = ?", (user_id,))
+        row = self.cursor.fetchone()
+        if not row:
+            return 0
+        balance = row[0]
+        if balance >= 1.0:
+            self.cursor.execute("UPDATE users SET ref_balance = 0 WHERE user_id = ? AND ref_balance = ?", (user_id, balance))
+            if self.cursor.rowcount > 0:
+                self.cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (balance, user_id))
+                self.conn.commit()
+                return balance
+        return 0
+
+    def get_ref_stats(self, user_id):
+        self.cursor.execute("SELECT COUNT(*) FROM users WHERE referrer_id = ?", (user_id,))
+        return self.cursor.fetchone()[0]
+
+    def set_bet(self, user_id, amount):
+        if amount < 0: amount = 0
+        self.cursor.execute("UPDATE users SET current_bet = ? WHERE user_id = ?", (amount, user_id))
+        self.conn.commit()
+
+    def add_balance(self, user_id, amount, is_deposit=False, is_withdraw=False, is_bet=False):
+        if is_bet or is_withdraw:
+            self.cursor.execute(
+                "UPDATE users SET balance = balance + ? WHERE user_id = ? AND balance >= ?",
+                (amount, user_id, abs(amount))
+            )
+        else:
+            self.cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+        
+        if self.cursor.rowcount == 0:
+            return False
+        
+        if is_deposit:
+            self.cursor.execute("UPDATE users SET total_deposits = total_deposits + ? WHERE user_id = ?", (amount, user_id))
+        if is_withdraw:
+            self.cursor.execute("UPDATE users SET total_withdrawals = total_withdrawals + ? WHERE user_id = ?", (abs(amount), user_id))
+        if is_bet:
+            self.cursor.execute("UPDATE users SET total_bets = total_bets + 1, total_turnover = total_turnover + ? WHERE user_id = ?", (abs(amount), user_id))
+            self.cursor.execute("SELECT total_turnover FROM users WHERE user_id = ?", (user_id,))
             turnover_row = self.cursor.fetchone()
             if turnover_row:
                 turnover = turnover_row[0]
@@ -407,14 +600,10 @@ def get_main_keyboard(user_id: int):
     )
     builder.row(
         InlineKeyboardButton(text=get_btn(user_id, "language"), callback_data="language"),
+        InlineKeyboardButton(text=get_btn(user_id, "checks"), callback_data="checks_menu")
+    )
+    builder.row(
         InlineKeyboardButton(text=get_btn(user_id, "own_casino"), url=config.OWN_CASINO_LINK)
-    builder.row(
-    InlineKeyboardButton(text=get_btn(user_id, "language"), callback_data="language"),
-    InlineKeyboardButton(text=get_btn(user_id, "checks"), callback_data="checks_menu")
-)
-    builder.row(
-    InlineKeyboardButton(text=get_btn(user_id, "own_casino"), url=config.OWN_CASINO_LINK)
-)    
     )
     return builder.as_markup()
 
