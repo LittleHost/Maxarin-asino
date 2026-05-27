@@ -396,19 +396,10 @@ async def reserve_command_handler(message: Message):
     wait_msg = await message.answer("🔄 Загрузка данных о резервах...")
     fake_total_usd = fake_treasury.force_update()
     
-    fake_assets = [
-        ("USDT", fake_total_usd, float(fake_total_usd)),
-        ("TON", round(random.uniform(0, 50), 2), round(random.uniform(0, 30), 2)),
-        ("BTC", round(random.uniform(0, 0.01), 5), round(random.uniform(0, 200), 2)),
-        ("ETH", round(random.uniform(0, 0.5), 4), round(random.uniform(0, 150), 2))
-    ]
-    
-    currency_emojis = {"USDT": "🟢", "TON": "💎", "BTC": "🟠", "ETH": "🔷"}
     text = f"<b>🥣 Crypto Bot: ${fake_total_usd:,.2f} USDT</b>\n"
-    for asset, amount, usd_val in fake_assets:
-        emoji = currency_emojis.get(asset, "🔹")
-        text += f"{emoji} {asset}: {amount:,.4f} (${usd_val:,.2f} USDT)\n"
+    text += f"🟢 USDT: {fake_total_usd:.4f} (${fake_total_usd:,.2f} USDT)\n"
     text += "\n<code>Баланс обновлен: только что</code>"
+    
     await wait_msg.edit_text(text, parse_mode=ParseMode.HTML)
 
 @dp.message(CommandStart())
