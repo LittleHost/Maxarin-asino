@@ -140,7 +140,7 @@ TEXTS = {
             "transactions": "📋 Транзакции",
             "game_history": "📜 История игр",
             "modes": "🎮 Режимы",
-            "fast_game": "🎲 Быстрая игра",
+            "fast_game": "🎲 Фаст конкурс",
             "game_mines": "💣 Мины",
             "game_tower": "🗼 Башня",
             "own_casino": "🎰 Хочу свое казино",
