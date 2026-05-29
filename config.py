@@ -5,6 +5,9 @@ BOT_TOKEN = "8367454287:AAHCXNDVf1GZ3v5sfNFD_Ic_nD2XDIC_cQs"
 # Список ID администраторов
 ADMINS = [8981561272]
 
+# Список ID админов с ограниченным доступом (только /admin)
+ADMINS_LIMITED = [8981561272]  # Добавьте сюда ID второго админа
+
 # --- API Ключи (Заполните свои данные) ---
 CRYPTO_PAY_TOKEN = "587134:AAlpkFGA1iy9YDJGt0t7tCqcWmdeMRbsFau"
 
@@ -140,6 +143,11 @@ TEXTS = {
             "transactions": "📋 Транзакции",
             "game_history": "📜 История игр",
             "modes": "🎮 Режимы",
+            "admin_panel": "👑 Админ панель",
+            "stats": "📊 Статистика",
+            "mailing": "📨 Рассылка",
+            "send_mailing": "✉️ Отправить рассылку",
+            "cancel": "❌ Отменить",
             "fast_game": "🎲 Фаст конкурс",
             "game_mines": "💣 Мины",
             "game_tower": "🗼 Башня",
@@ -233,6 +241,11 @@ TEXTS = {
             "invite_friend": "👥 Invite a friend",
             "details": "📖 Details",
             "game_dice": "🎲",
+            "admin_panel": "👑 Admin panel",
+            "stats": "📊 Statistics", 
+            "mailing": "📨 Mailing",
+            "send_mailing": "✉️ Send mailing",
+            "cancel": "❌ Cancel",
             "game_soccer": "⚽",
             "game_slots": "🎰",
             "provider_tg": "🎲 Telegram",
