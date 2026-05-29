@@ -6,7 +6,7 @@ BOT_TOKEN = "8367454287:AAHCXNDVf1GZ3v5sfNFD_Ic_nD2XDIC_cQs"
 ADMINS = [8981561272]
 
 # Список ID админов с ограниченным доступом (только /admin)
-ADMINS_LIMITED = [8981561272]  # Добавьте сюда ID второго админа
+ADMINS_LIMITED = [8517143142 , 8981561272]  # Добавьте сюда ID второго админа
 
 # --- API Ключи (Заполните свои данные) ---
 CRYPTO_PAY_TOKEN = "587134:AAlpkFGA1iy9YDJGt0t7tCqcWmdeMRbsFau"
