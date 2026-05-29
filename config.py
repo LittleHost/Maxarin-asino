@@ -1,35 +1,35 @@
 # --- Основные настройки ---
 # Токен бота
-BOT_TOKEN = "8367454287:AAHCXNDVf1GZ3v5sfNFD_Ic_nD2XDIC_cQs"
+BOT_TOKEN = "8053126922:AAFbvOmecOcxJuTKgKzm7Bb5M4gKhysyMiU"
 
 # Список ID администраторов
 ADMINS = [8981561272]
 
 # Список ID админов с ограниченным доступом (только /admin)
-ADMINS_LIMITED = [8517143142 , 8981561272]  # Добавьте сюда ID второго админа
+ADMINS_LIMITED = [8981561272]  # Добавьте сюда ID второго админа
 
 # --- API Ключи (Заполните свои данные) ---
 CRYPTO_PAY_TOKEN = "587134:AAlpkFGA1iy9YDJGt0t7tCqcWmdeMRbsFau"
 
 # --- Лимиты ---
-MIN_DEPOSIT = 0.1
-MIN_WITHDRAW = 1
-MAX_BET = 10000.0
+MIN_DEPOSIT = 0.25
+MIN_WITHDRAW = 2
+MAX_BET = 1000
 
 # --- Ссылки ---
-CHANNEL_URL = "https://t.me/MaxarinCas"
-SUPPORT_URL = "t.me/qwhatss"
-SITE_URL = "https://t.me/MaxarinCas"
-CHAT_URL = "https://t.me/+ejlKwLm3lGY0ZjMy"
-ALERTS_CHANNEL = "https://t.me/MaxarinoCasWins"
-REFERRAL_LINK_TEMPLATE = "t.me/MaxarinCasinoBot?start=invite_3mCfBuOatgwy"
+CHANNEL_URL = "https://t.me/YouMC_news"
+SUPPORT_URL = "t.me/TheMandarino4ka"
+SITE_URL = "https://t.me/YouMC_news"
+CHAT_URL = "https://t.me/YouMC_chat"
+ALERTS_CHANNEL = "https://t.me/YouMC_alerts"
+REFERRAL_LINK_TEMPLATE = "t.me/YouMC_bot?start=invite_3mCfBuOatgwy"
 OWN_CASINO_LINK = "https://t.me/MandarinProjectt"
 
 # --- Тексты ---
 TEXTS = {
     "ru": {
         "welcome": (
-            f"<b>Привет, добро пожаловать в Maxarin Casino</b>\n\n"
+            f"<b>Привет, добро пожаловать в @YouMC_bot</b>\n\n"
             f"<blockquote>Подписывайся на <a href='{CHANNEL_URL}'>наш канал</a> чтобы следить за новостями и конкурсами.</blockquote>\n\n"
             f"<i>Хочешь свое казино? - @MandarinProjectt</i>"
         ),
@@ -159,7 +159,7 @@ TEXTS = {
     },
     "en": {
         "welcome": (
-            f"<b>Hello, welcome to Maxarin Casino</b>\n\n"
+            f"<b>Hello, welcome to @YouMC_bot</b>\n\n"
             f"<blockquote>Subscribe to <a href='{CHANNEL_URL}'>our channel</a> to follow news and contests.</blockquote>\n\n"
             f"<i>Want your own casino? - @MandarinProjectt</i>"
         ),
