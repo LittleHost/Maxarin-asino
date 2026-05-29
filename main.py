@@ -12,6 +12,7 @@ import aiohttp
 import hashlib
 import math
 import string
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, html, F
 from aiogram.client.default import DefaultBotProperties
@@ -81,6 +82,9 @@ class DepositState(StatesGroup):
 class WithdrawState(StatesGroup):
     entering_amount = State()
     choosing_method = State()
+
+class AdminState(StatesGroup):
+    waiting_for_mailing = State()
 
 class CheckState(StatesGroup):
     entering_amount = State()
@@ -514,6 +518,251 @@ async def help_command(message: Message):
 • Напишите <code>5$</code> - изменить ставку (в USDT)
     """
     await message.answer(help_text, parse_mode=ParseMode.HTML)
+
+# ==================== АДМИН ПАНЕЛЬ (ОГРАНИЧЕННЫЙ ДОСТУП) ====================
+
+def is_limited_admin(user_id: int) -> bool:
+    """Проверка, имеет ли пользователь ограниченные права админа"""
+    return user_id in config.ADMINS_LIMITED
+
+def is_full_admin(user_id: int) -> bool:
+    """Проверка, имеет ли пользователь полные права админа"""
+    return user_id in config.ADMINS
+
+@dp.message(Command("admin"))
+async def admin_command(message: Message, state: FSMContext):
+    """Админ панель (доступна только админам из ADMINS_LIMITED)"""
+    user_id = message.from_user.id
+    
+    # Проверяем права
+    if not is_limited_admin(user_id) and not is_full_admin(user_id):
+        return await message.answer("❌ У вас нет доступа к этой команде!", parse_mode=ParseMode.HTML)
+    
+    await state.clear()
+    
+    # Получаем статистику
+    db.cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = db.cursor.fetchone()[0]
+    
+    db.cursor.execute("SELECT SUM(total_deposits) FROM users")
+    total_deposits = db.cursor.fetchone()[0] or 0
+    
+    db.cursor.execute("SELECT SUM(total_withdrawals) FROM users")
+    total_withdrawals = db.cursor.fetchone()[0] or 0
+    
+    db.cursor.execute("SELECT SUM(total_turnover) FROM users")
+    total_turnover = db.cursor.fetchone()[0] or 0
+    
+    db.cursor.execute("SELECT SUM(total_bets) FROM users")
+    total_bets = db.cursor.fetchone()[0] or 0
+    
+    # Статистика за сегодня
+    today = datetime.now().strftime("%Y-%m-%d")
+    db.cursor.execute("SELECT COUNT(*) FROM users WHERE reg_date LIKE ?", (f"{today}%",))
+    new_users_today = db.cursor.fetchone()[0]
+    
+    text = f"👑 <b>Админ панель</b>\n\n"
+    text += f"📊 <b>Общая статистика:</b>\n"
+    text += f"• 👥 Всего пользователей: <b>{total_users}</b>\n"
+    text += f"• 📈 Новых сегодня: <b>{new_users_today}</b>\n"
+    text += f"• 💰 Общий депозит: <b>{total_deposits:.2f} USDT</b>\n"
+    text += f"• 📤 Общий вывод: <b>{total_withdrawals:.2f} USDT</b>\n"
+    text += f"• 📊 Общий оборот: <b>{total_turnover:.2f} USDT</b>\n"
+    text += f"• 🎮 Всего ставок: <b>{total_bets}</b>\n"
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"),
+        InlineKeyboardButton(text="📨 Рассылка", callback_data="admin_mailing")
+    )
+    builder.row(InlineKeyboardButton(text="🔒 Выйти", callback_data="admin_exit"))
+    
+    await message.answer(text, reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
+
+@dp.callback_query(F.data == "admin_stats")
+async def admin_stats_callback(callback: CallbackQuery, state: FSMContext):
+    """Подробная статистика для админа"""
+    user_id = callback.from_user.id
+    
+    if not is_limited_admin(user_id) and not is_full_admin(user_id):
+        return await callback.answer("❌ Нет доступа!", show_alert=True)
+    
+    # Подробная статистика
+    db.cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = db.cursor.fetchone()[0]
+    
+    # За последние 7 дней
+    week_ago = (datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+    db.cursor.execute("SELECT COUNT(*) FROM users WHERE reg_date >= ?", (week_ago,))
+    new_users_week = db.cursor.fetchone()[0]
+    
+    # За последние 30 дней
+    month_ago = (datetime.now() - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    db.cursor.execute("SELECT COUNT(*) FROM users WHERE reg_date >= ?", (month_ago,))
+    new_users_month = db.cursor.fetchone()[0]
+    
+    # Топ 10 по обороту
+    db.cursor.execute("SELECT user_id, total_turnover FROM users ORDER BY total_turnover DESC LIMIT 10")
+    top_turnover = db.cursor.fetchall()
+    
+    # Топ 10 по депозитам
+    db.cursor.execute("SELECT user_id, total_deposits FROM users ORDER BY total_deposits DESC LIMIT 10")
+    top_deposits = db.cursor.fetchall()
+    
+    text = f"📊 <b>Расширенная статистика</b>\n\n"
+    text += f"👥 <b>Пользователи:</b>\n"
+    text += f"• Всего: <b>{total_users}</b>\n"
+    text += f"• За 7 дней: <b>{new_users_week}</b>\n"
+    text += f"• За 30 дней: <b>{new_users_month}</b>\n\n"
+    
+    text += f"🏆 <b>Топ 10 по обороту:</b>\n"
+    for i, (user_id, turnover) in enumerate(top_turnover[:5], 1):
+        user_name = get_user_display_name(user_id)
+        text += f"{i}. {user_name} — <b>{turnover:.2f} USDT</b>\n"
+    
+    text += f"\n💎 <b>Топ 10 по депозитам:</b>\n"
+    for i, (user_id, deposits) in enumerate(top_deposits[:5], 1):
+        user_name = get_user_display_name(user_id)
+        text += f"{i}. {user_name} — <b>{deposits:.2f} USDT</b>\n"
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back"))
+    builder.row(InlineKeyboardButton(text="🔒 Выйти", callback_data="admin_exit"))
+    
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
+
+@dp.callback_query(F.data == "admin_mailing")
+async def admin_mailing_callback(callback: CallbackQuery, state: FSMContext):
+    """Начало рассылки"""
+    user_id = callback.from_user.id
+    
+    if not is_limited_admin(user_id) and not is_full_admin(user_id):
+        return await callback.answer("❌ Нет доступа!", show_alert=True)
+    
+    await state.set_state(AdminState.waiting_for_mailing)
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="❌ Отменить", callback_data="admin_cancel_mailing"))
+    
+    await callback.message.edit_text(
+        "📨 <b>Рассылка</b>\n\n"
+        "Отправьте сообщение, которое хотите разослать всем пользователям.\n\n"
+        "Поддерживаются: текст, фото, видео, документы.\n\n"
+        "⚠️ <b>Внимание!</b> Рассылка придет ВСЕМ пользователям бота!",
+        reply_markup=builder.as_markup(),
+        parse_mode=ParseMode.HTML
+    )
+
+@dp.callback_query(F.data == "admin_cancel_mailing")
+async def admin_cancel_mailing_callback(callback: CallbackQuery, state: FSMContext):
+    """Отмена рассылки"""
+    await state.clear()
+    await admin_command(callback.message, state)
+
+@dp.message(AdminState.waiting_for_mailing)
+async def process_mailing(message: Message, state: FSMContext):
+    """Обработка отправки рассылки"""
+    user_id = message.from_user.id
+    
+    if not is_limited_admin(user_id) and not is_full_admin(user_id):
+        await state.clear()
+        return await message.answer("❌ Нет доступа!")
+    
+    # Получаем всех пользователей
+    db.cursor.execute("SELECT user_id FROM users")
+    users = db.cursor.fetchall()
+    
+    if not users:
+        await state.clear()
+        return await message.answer("❌ Нет пользователей для рассылки!")
+    
+    # Отправляем подтверждение
+    confirm_text = f"📨 <b>Подтверждение рассылки</b>\n\n"
+    confirm_text += f"Сообщение будет отправлено <b>{len(users)}</b> пользователям.\n\n"
+    confirm_text += f"<b>Текст сообщения:</b>\n{message.text or 'Медиафайл с подписью'}\n\n"
+    confirm_text += f"<b>Медиа:</b> {'✅ есть' if message.photo or message.video or message.document else '❌ нет'}\n\n"
+    confirm_text += f"Начать рассылку?"
+    
+    # Сохраняем сообщение в state
+    await state.update_data(mailing_message=message)
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Да, отправить", callback_data="admin_confirm_mailing"),
+        InlineKeyboardButton(text="❌ Отменить", callback_data="admin_cancel_mailing")
+    )
+    
+    await message.answer(confirm_text, reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
+
+@dp.callback_query(F.data == "admin_confirm_mailing")
+async def admin_confirm_mailing_callback(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение и отправка рассылки"""
+    user_id = callback.from_user.id
+    
+    if not is_limited_admin(user_id) and not is_full_admin(user_id):
+        return await callback.answer("❌ Нет доступа!", show_alert=True)
+    
+    data = await state.get_data()
+    mailing_message = data.get("mailing_message")
+    
+    if not mailing_message:
+        await callback.answer("❌ Ошибка: сообщение не найдено!", show_alert=True)
+        await state.clear()
+        return
+    
+    # Получаем всех пользователей
+    db.cursor.execute("SELECT user_id FROM users")
+    users = db.cursor.fetchall()
+    
+    await callback.message.edit_text("📨 <b>Рассылка начата...</b>\n\n0 / " + str(len(users)), parse_mode=ParseMode.HTML)
+    
+    success = 0
+    fail = 0
+    
+    for i, (user_id,) in enumerate(users, 1):
+        try:
+            if mailing_message.text:
+                await callback.bot.send_message(user_id, mailing_message.text, parse_mode=ParseMode.HTML)
+            elif mailing_message.photo:
+                await callback.bot.send_photo(user_id, mailing_message.photo[-1].file_id, caption=mailing_message.caption, parse_mode=ParseMode.HTML)
+            elif mailing_message.video:
+                await callback.bot.send_video(user_id, mailing_message.video.file_id, caption=mailing_message.caption, parse_mode=ParseMode.HTML)
+            elif mailing_message.document:
+                await callback.bot.send_document(user_id, mailing_message.document.file_id, caption=mailing_message.caption, parse_mode=ParseMode.HTML)
+            success += 1
+        except Exception as e:
+            fail += 1
+            logger.error(f"Failed to send to {user_id}: {e}")
+        
+        # Обновляем статус каждые 50 сообщений
+        if i % 50 == 0:
+            await callback.message.edit_text(f"📨 <b>Рассылка...</b>\n\n✅ Успешно: {success}\n❌ Ошибок: {fail}\n📊 Прогресс: {i}/{len(users)}", parse_mode=ParseMode.HTML)
+    
+    # Финальный отчет
+    await callback.message.edit_text(
+        f"📨 <b>Рассылка завершена!</b>\n\n"
+        f"✅ Успешно: <b>{success}</b>\n"
+        f"❌ Ошибок: <b>{fail}</b>\n"
+        f"📊 Всего: <b>{len(users)}</b>",
+        parse_mode=ParseMode.HTML
+    )
+    
+    await state.clear()
+    
+    # Возвращаемся в админ панель
+    await admin_command(callback.message, state)
+
+@dp.callback_query(F.data == "admin_back")
+async def admin_back_callback(callback: CallbackQuery, state: FSMContext):
+    """Возврат в главную админ панель"""
+    await admin_command(callback.message, state)
+
+@dp.callback_query(F.data == "admin_exit")
+async def admin_exit_callback(callback: CallbackQuery, state: FSMContext):
+    """Выход из админ панели"""
+    await state.clear()
+    await callback.message.delete()
+    await callback.answer("Выход из админ панели")
 
 @dp.message(Command("reserve"))
 async def reserve_command_handler(message: Message):
