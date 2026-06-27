@@ -5,13 +5,18 @@ import random
 import re
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.enums import ParseMode
-from aiogram.client.default import DefaultBotProperties
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters import Command
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.utils.callback_data import CallbackData
+from aiogram.utils.executor import start_polling
+
+# Инициализация для aiogram 2.x
+bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
 # ===== КОНФИГ =====
 TOKEN = "8560416585:AAGZL4yp8VBsG1AP_lIkQsP3QUHUJGifN0s"
